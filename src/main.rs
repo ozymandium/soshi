@@ -1,13 +1,13 @@
-use std::path::PathBuf;
 use std::error::Error;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Parser, ValueHint};
+use ntfy::dispatcher::Dispatcher;
 use regex::Regex;
 use serde::Deserialize;
-use toml;
-use ntfy::dispatcher::Dispatcher;
 use tokio::signal::unix::{signal, SignalKind};
+use toml;
 //use tokio::time::self as tokio_time;
 use tokio::time as tokio_time;
 
@@ -137,7 +137,7 @@ async fn run(config: &Config, dispatcher: &Dispatcher) -> Result<(), Box<dyn Err
         notify(&dispatcher, &config.ntfy, &new_conflicts)?;
         println!("Notification sent");
     }
-    
+
     Ok(())
 }
 
@@ -154,7 +154,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     loop {
         if let Err(e) = run(&config, &dispatcher).await {
             return Err(e);
-        }   
+        }
         let delay = tokio_time::sleep(config.interval);
         tokio::select! {
             _ = delay => {},

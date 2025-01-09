@@ -68,7 +68,7 @@ pub struct Ntfy {
 
     /// Hostname of the machine
     hostname: String,
-    
+
     /// Sends payloads to ntfy.sh
     dispatcher: Dispatcher,
 }
@@ -85,7 +85,11 @@ impl Ntfy {
         let hostname_binding = gethostname();
         let hostname = hostname_binding.to_string_lossy().to_string();
         let dispatcher = Dispatcher::new(&config.instance, Some(Auth::token(&config.token)), None)?;
-        Ok(Ntfy { config, hostname, dispatcher })
+        Ok(Ntfy {
+            config,
+            hostname,
+            dispatcher,
+        })
     }
 
     /// Send a notification to ntfy.sh
