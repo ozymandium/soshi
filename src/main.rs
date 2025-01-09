@@ -1,16 +1,51 @@
+use clap::{Parser, ValueHint};
 use regex::Regex;
+use serde::Deserialize;
 use std::error::Error;
 use std::path::PathBuf;
+use toml;
 
 use soshi::json_db::JsonDb;
+use soshi::ntfy::Config as NtfyConfig;
+use soshi::ntfy::{get_dispatcher, notify};
+
+/// Simple program to greet a person
+#[derive(Parser, Debug)]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Path to the TOML configuration file
+    #[arg(short, long, default_value = "~/.config/soshi.toml", value_hint = ValueHint::FilePath)]
+    config: PathBuf,
+}
 
 /// Struct for the config file
-#[derive(Debug)] // TODO: add Deserialize when adding config file functionality
+#[derive(Debug, Deserialize)] // TODO: add Deserialize when adding config file functionality
 struct Config {
     // syncthing directories to search over
     st_dirs: Vec<PathBuf>,
     // path to the database file, which is a json list of conflict files
     db_path: PathBuf,
+    // ntfy.sh configuration
+    ntfy: NtfyConfig,
+}
+
+/// Implementation of the Config struct
+impl Config {
+    /// Load the configuration from a TOML file
+    ///
+    /// # Arguments
+    /// * `path`: path to the TOML file
+    ///
+    /// # Returns
+    /// The configuration struct
+    pub fn load(path: &PathBuf) -> Result<Config, Box<dyn Error>> {
+        if !path.exists() {
+            return Err(format!("Config file does not exist: {}", path.display()).into());
+        }
+        let content = std::fs::read_to_string(path)?;
+        let config: Config = toml::from_str(&content)?;
+        Ok(config)
+    }
 }
 
 /// Finds syncthing conflict files in specified directories
@@ -65,15 +100,15 @@ fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Erro
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    // hardcode a config for now
-    // TODO: add config file functionality
-    let config = Config {
-        st_dirs: vec![PathBuf::from("/home/roco/Documents")],
-        db_path: PathBuf::from("/home/roco/src/soshi/conflicts.json"),
-    };
-    println!("{:?}", config);
+    let args = Args::parse();
 
-    let old_conflicts = JsonDb::load(&config.db_path)?;
+    let config = Config::load(&args.config)?;
+    println!("Config: {:?}", config);
+
+    // setup ntfy.sh
+    let ntfy_dispatcher = get_dispatcher(&config.ntfy)?;
+
+    let old_db = JsonDb::load(&config.db_path)?;
 
     // find current conflict files
     let cur_conflicts = find_conflicts(&config.st_dirs)?;
@@ -81,23 +116,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     // new conflicts are the difference between the current and old conflicts
     let new_conflicts: Vec<PathBuf> = cur_conflicts
         .iter()
-        .filter(|path| !old_conflicts.conflicts.contains(path))
+        .filter(|path| !old_db.conflicts.contains(path))
         .cloned()
         .collect();
 
     // print conflict files
-    // TODO: add logging
-    println!("New conflicts: {}", cur_conflicts.len());
-    for file in new_conflicts {
+    println!("Previous conflicts: {}", old_db.conflicts.len());
+    for file in old_db.conflicts {
         println!("    {}", file.display());
     }
-    println!("Previous conflicts: {}", old_conflicts.conflicts.len());
-    for file in old_conflicts.conflicts {
+    println!("New conflicts: {}", new_conflicts.len());
+    for file in &new_conflicts {
         println!("    {}", file.display());
     }
-
     // write new conflicts to the database file
     JsonDb::new(cur_conflicts).write(&config.db_path)?;
+
+    if !new_conflicts.is_empty() {
+        notify(&ntfy_dispatcher, &config.ntfy, &new_conflicts)?;
+        println!("Notification sent");
+    }
 
     Ok(())
 }
