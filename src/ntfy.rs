@@ -79,7 +79,7 @@ impl Ntfy {
             .message(
                 conflicts
                     .iter()
-                    .map(|p| format!("* `{}`", p.to_string_lossy().to_string()))
+                    .map(|p| format!("* `{}`", p.display()))
                     .collect::<Vec<String>>()
                     .join("\n"),
             )
