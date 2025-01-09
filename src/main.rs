@@ -1,9 +1,15 @@
+use std::path::PathBuf;
+use std::error::Error;
+use std::time::Duration;
+
 use clap::{Parser, ValueHint};
 use regex::Regex;
 use serde::Deserialize;
-use std::error::Error;
-use std::path::PathBuf;
 use toml;
+use ntfy::dispatcher::Dispatcher;
+use tokio::signal::unix::{signal, SignalKind};
+//use tokio::time::self as tokio_time;
+use tokio::time as tokio_time;
 
 use soshi::json_db::JsonDb;
 use soshi::ntfy::Config as NtfyConfig;
@@ -21,6 +27,9 @@ struct Args {
 /// Struct for the config file
 #[derive(Debug, Deserialize)] // TODO: add Deserialize when adding config file functionality
 struct Config {
+    // How frequently to check for new conflicts
+    #[serde(with = "humantime_serde")]
+    interval: Duration,
     // syncthing directories to search over
     st_dirs: Vec<PathBuf>,
     // path to the database file, which is a json list of conflict files
@@ -99,15 +108,7 @@ fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Erro
     Ok(files)
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
-
-    let config = Config::load(&args.config)?;
-    println!("Config: {:?}", config);
-
-    // setup ntfy.sh
-    let ntfy_dispatcher = get_dispatcher(&config.ntfy)?;
-
+async fn run(config: &Config, dispatcher: &Dispatcher) -> Result<(), Box<dyn Error>> {
     let old_db = JsonDb::load(&config.db_path)?;
 
     // find current conflict files
@@ -133,9 +134,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     JsonDb::new(cur_conflicts).write(&config.db_path)?;
 
     if !new_conflicts.is_empty() {
-        notify(&ntfy_dispatcher, &config.ntfy, &new_conflicts)?;
+        notify(&dispatcher, &config.ntfy, &new_conflicts)?;
         println!("Notification sent");
     }
+    
+    Ok(())
+}
 
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let args = Args::parse();
+    let config = Config::load(&args.config)?;
+    println!("Config: {:?}", config);
+
+    let dispatcher = get_dispatcher(&config.ntfy)?;
+
+    let mut stream_sigterm = signal(SignalKind::terminate())?;
+
+    loop {
+        if let Err(e) = run(&config, &dispatcher).await {
+            return Err(e);
+        }   
+        let delay = tokio_time::sleep(config.interval);
+        tokio::select! {
+            _ = delay => {},
+            _ = stream_sigterm.recv() => {
+                println!("Received SIGTERM");
+                break;
+            },
+        }
+    }
     Ok(())
 }
