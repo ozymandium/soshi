@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Parser, ValueHint};
-use ntfy::dispatcher::Dispatcher;
 use regex::Regex;
 use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
@@ -13,7 +12,8 @@ use tokio::time as tokio_time;
 
 use soshi::json_db::JsonDb;
 use soshi::ntfy::Config as NtfyConfig;
-use soshi::ntfy::{get_dispatcher, notify};
+//use soshi::ntfy::{get_dispatcher, notify};
+use soshi::ntfy::Ntfy;
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -34,7 +34,7 @@ struct Config {
     st_dirs: Vec<PathBuf>,
     // path to the database file, which is a json list of conflict files
     db_path: PathBuf,
-    // ntfy.sh configuration
+    // ntfy.sh configuration.
     ntfy: NtfyConfig,
 }
 
@@ -75,7 +75,8 @@ fn find_conflicts(st_dirs: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     Ok(conflicts)
 }
 
-/// Recursively finds files in a directory or its subdirectories that match a regex
+/// Recursively finds files in a directory or its subdirectories that match a regex. Ignores
+/// anything that is a symlink.
 ///
 /// # Arguments
 /// * `dir`: directory to search in
@@ -86,14 +87,17 @@ fn find_conflicts(st_dirs: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
 fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let mut files = Vec::new();
     for entry in dir.read_dir()? {
-        let entry = entry?;
-        let path = entry.path();
+        let path = entry?.path();
+        // ignore symlinks
+        if path.is_symlink() {
+            continue;
+        }
         if path.is_dir() {
-            //files.extend(find_files(&path, regex));
-            let found = find_files(&path, regex)?;
-            for file in found {
-                files.push(file);
-            }
+            //let found = find_files(&path, regex)?;
+            //for file in found {
+            //    files.push(file);
+            //}
+            files.append(&mut find_files(&path, regex)?);
         } else {
             let filename = path
                 .file_name()
@@ -108,20 +112,17 @@ fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Erro
     Ok(files)
 }
 
-async fn run(config: &Config, dispatcher: &Dispatcher) -> Result<(), Box<dyn Error>> {
+async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
     let old_db = JsonDb::load(&config.db_path)?;
-
-    // find current conflict files
     let cur_conflicts = find_conflicts(&config.st_dirs)?;
-
     // new conflicts are the difference between the current and old conflicts
+    // if the db didn't exist, all current conflicts are new
     let new_conflicts: Vec<PathBuf> = cur_conflicts
         .iter()
         .filter(|path| !old_db.conflicts.contains(path))
         .cloned()
         .collect();
 
-    // print conflict files
     println!("Previous conflicts: {}", old_db.conflicts.len());
     for file in old_db.conflicts {
         println!("    {}", file.display());
@@ -133,10 +134,7 @@ async fn run(config: &Config, dispatcher: &Dispatcher) -> Result<(), Box<dyn Err
     // write new conflicts to the database file
     JsonDb::new(cur_conflicts).write(&config.db_path)?;
 
-    if !new_conflicts.is_empty() {
-        notify(&dispatcher, &config.ntfy, &new_conflicts)?;
-        println!("Notification sent");
-    }
+    ntfy.conflicts(&new_conflicts).await?;
 
     Ok(())
 }
@@ -147,12 +145,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = Config::load(&args.config)?;
     println!("Config: {:?}", config);
 
-    let dispatcher = get_dispatcher(&config.ntfy)?;
+    //let dispatcher = get_dispatcher(&config.ntfy)?;
+    let ntfy = Ntfy::new(config.ntfy.clone())?;
 
     let mut stream_sigterm = signal(SignalKind::terminate())?;
 
     loop {
-        if let Err(e) = run(&config, &dispatcher).await {
+        if let Err(e) = run(&config, &ntfy).await {
             return Err(e);
         }
         let delay = tokio_time::sleep(config.interval);

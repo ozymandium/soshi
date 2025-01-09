@@ -18,52 +18,19 @@ pub struct Config {
     pub token: String,
 }
 
-/// Get a dispatcher for sending notifications
-///
-/// # Arguments
-/// * `config`: configuration for the dispatcher
-///
-/// # Returns
-/// A new dispatcher for sending notifications
-pub fn get_dispatcher(config: &Config) -> Result<Dispatcher, Error> {
-    Dispatcher::new(&config.instance, Some(Auth::token(&config.token)), None)
-}
-
-/// Send a notification to ntfy.sh
-///
-/// # Arguments
-/// * `dispatcher`: dispatcher for sending notifications
-/// * `config`: configuration for the dispatcher
-/// * `new_conflicts`: list of new conflict files
-///
-/// # Returns
-/// Result indicating success or failure
-#[tokio::main]
-pub async fn notify(
-    dispatcher: &Dispatcher,
-    config: &Config,
-    new_conflicts: &[PathBuf],
-) -> Result<(), Error> {
-    let hostname_binding = gethostname();
-    let hostname = hostname_binding.to_string_lossy();
-    let payload = Payload::new(&config.topic)
-        .title(format!(
-            "{}: {} new syncthing conflicts",
-            &hostname,
-            new_conflicts.len()
-        ))
-        // list the new conflicts
-        //.message(new_conflicts.iter().map(|p| p.to_string()).collect::<Vec<String>>().join("\n"))
-        .message("")
-        .markdown(true);
-    //async_task::block_on(dispatcher.send(&payload))?;
-    dispatcher.send(&payload).await?;
-    Ok(())
+impl Config {
+    pub fn clone(&self) -> Config {
+        Config {
+            instance: self.instance.clone(),
+            topic: self.topic.clone(),
+            token: self.token.clone(),
+        }
+    }
 }
 
 /// All ntfy.sh interaction is done through the Ntfy struct
 pub struct Ntfy {
-    /// Take ownership of the ntfy.sh configuration
+    /// Configuration needed to send requests to ntfy.sh
     config: Config,
 
     /// Hostname of the machine
@@ -82,8 +49,7 @@ impl Ntfy {
     /// # Returns
     /// A new Ntfy instance
     pub fn new(config: Config) -> Result<Ntfy, Error> {
-        let hostname_binding = gethostname();
-        let hostname = hostname_binding.to_string_lossy().to_string();
+        let hostname = gethostname().to_string_lossy().to_string();
         let dispatcher = Dispatcher::new(&config.instance, Some(Auth::token(&config.token)), None)?;
         Ok(Ntfy {
             config,
@@ -95,22 +61,31 @@ impl Ntfy {
     /// Send a notification to ntfy.sh
     ///
     /// # Arguments
-    /// * `new_conflicts`: list of new conflict files
+    /// * `conflicts`: list of new conflict files
     ///
     /// # Returns
     /// Result indicating success or failure
-    pub async fn notify_conflicts(&self, new_conflicts: &[PathBuf]) -> Result<(), Error> {
+    pub async fn conflicts(&self, conflicts: &[PathBuf]) -> Result<(), Error> {
+        if conflicts.is_empty() {
+            return Ok(());
+        }
         let payload = Payload::new(&self.config.topic)
             .title(format!(
                 "{}: {} new syncthing conflicts",
                 &self.hostname,
-                new_conflicts.len()
+                conflicts.len()
             ))
-            // list the new conflicts
-            //.message(new_conflicts.iter().map(|p| p.to_string()).collect::<Vec<String>>().join("\n"))
-            .message("")
+            .tags(["warning"])
+            .message(
+                conflicts
+                    .iter()
+                    .map(|p| format!("* `{}`", p.to_string_lossy().to_string()))
+                    .collect::<Vec<String>>()
+                    .join("\n"),
+            )
             .markdown(true);
         self.dispatcher.send(&payload).await?;
+        println!("Sent notification");
         Ok(())
     }
 }
