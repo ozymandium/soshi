@@ -1,18 +1,20 @@
 use std::error::Error;
+use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use chrono;
 use clap::{Parser, ValueHint};
+use env_logger::{Builder as LogBuilder, Env as LogEnv};
+use log::{debug, info, warn};
 use regex::Regex;
 use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
-use toml;
-//use tokio::time::self as tokio_time;
 use tokio::time as tokio_time;
+use toml;
 
 use soshi::json_db::JsonDb;
 use soshi::ntfy::Config as NtfyConfig;
-//use soshi::ntfy::{get_dispatcher, notify};
 use soshi::ntfy::Ntfy;
 
 /// Simple program to greet a person
@@ -20,7 +22,7 @@ use soshi::ntfy::Ntfy;
 #[command(version, about, long_about = None)]
 struct Args {
     /// Path to the TOML configuration file
-    #[arg(short, long, default_value = "~/.config/soshi.toml", value_hint = ValueHint::FilePath)]
+    #[arg(short='c', long, default_value = "~/.config/soshi.toml", value_hint = ValueHint::FilePath)]
     config: PathBuf,
 }
 
@@ -112,6 +114,36 @@ fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Erro
     Ok(files)
 }
 
+fn log_conflicts(old: &[PathBuf], cur: &[PathBuf], new: &[PathBuf], res: &[PathBuf]) {
+    debug!("Old conflicts: {}", old.len());
+    for file in old {
+        debug!("    * {}", file.display());
+    }
+
+    debug!("Current conflicts: {}", cur.len());
+    for file in cur {
+        debug!("    * {}", file.display());
+    }
+
+    if new.is_empty() {
+        debug!("New conflicts: 0");
+    } else {
+        warn!("New conflicts: {}", new.len());
+        for file in new {
+            warn!("    * {}", file.display());
+        }
+    }
+
+    if res.is_empty() {
+        debug!("Resolved conflicts: 0");
+    } else {
+        info!("Resolved conflicts: {}", res.len());
+        for file in res {
+            info!("    * {}", file.display());
+        }
+    }
+}
+
 async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
     let old_db = JsonDb::load(&config.db_path)?;
     let cur_conflicts = find_conflicts(&config.st_dirs)?;
@@ -122,15 +154,20 @@ async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
         .filter(|path| !old_db.conflicts.contains(path))
         .cloned()
         .collect();
+    // resolved conflicts are the difference between the old and current conflicts
+    let res_conflicts: Vec<PathBuf> = old_db
+        .conflicts
+        .iter()
+        .filter(|path| !cur_conflicts.contains(path))
+        .cloned()
+        .collect();
+    log_conflicts(
+        &old_db.conflicts,
+        &cur_conflicts,
+        &new_conflicts,
+        &res_conflicts,
+    );
 
-    println!("Previous conflicts: {}", old_db.conflicts.len());
-    for file in old_db.conflicts {
-        println!("    {}", file.display());
-    }
-    println!("New conflicts: {}", new_conflicts.len());
-    for file in &new_conflicts {
-        println!("    {}", file.display());
-    }
     // write new conflicts to the database file
     JsonDb::new(cur_conflicts).write(&config.db_path)?;
 
@@ -141,9 +178,20 @@ async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    LogBuilder::from_env(LogEnv::default())
+        .format(|buf, record| {
+            writeln!(
+                buf,
+                "[{} {}] {}",
+                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
+                record.level(),
+                record.args()
+            )
+        })
+        .init();
     let args = Args::parse();
     let config = Config::load(&args.config)?;
-    println!("Config: {:?}", config);
+    debug!("Config: {:?}", config);
 
     //let dispatcher = get_dispatcher(&config.ntfy)?;
     let ntfy = Ntfy::new(config.ntfy.clone())?;
@@ -158,7 +206,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         tokio::select! {
             _ = delay => {},
             _ = stream_sigterm.recv() => {
-                println!("Received SIGTERM");
+                debug!("Received SIGTERM");
                 break;
             },
         }

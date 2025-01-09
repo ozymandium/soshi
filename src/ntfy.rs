@@ -1,3 +1,4 @@
+use log::debug;
 use serde::Deserialize;
 use std::path::PathBuf;
 
@@ -85,7 +86,7 @@ impl Ntfy {
             )
             .markdown(true);
         self.dispatcher.send(&payload).await?;
-        println!("Sent notification");
+        debug!("Sent notification");
         Ok(())
     }
 }
