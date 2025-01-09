@@ -1,0 +1,11 @@
+interval = "5m"
+st_dirs = [
+    "/home/myuser/Sync"
+]
+db_path = "/home/myuser/.local/cache/soshi/soshi_db.json"
+
+[ntfy]
+instance = "https://ntfy.sh"
+topic = "mytopic"
+token = "<your-token>"
+
