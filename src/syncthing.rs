@@ -1,3 +1,5 @@
+use expanduser::expanduser;
+use log::debug;
 use reqwest;
 use serde::Deserialize;
 use std::error::Error;
@@ -12,23 +14,21 @@ pub struct Config {
     token: String,
 }
 
-//let rsp = client
-//    .post(&format!("{}/rest/config/folders", &config.url))
-//    .header("X-API-Key", &config.token)
-//    .send()
-//    .await?
-//    .text()
-//    .await?;
-
 /// Get a list of syncthing folders from a running syncthing instance via the REST API.
 /// The syncthing crate is unmaintained and incomplete. We only need to get paths from it anyway,
 /// so just parse the raw JSON. Use the [config
 /// endpoint](https://docs.syncthing.net/rest/config.html)
+///
+/// # Arguments
+/// * `config`: configuration for the syncthing instance
+///
+/// # Returns
+/// A list of paths to syncthing folders which are valid directories
 pub async fn get_folders(config: &Config) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let client = reqwest::Client::new();
     let rsp = match client
-        .post(&format!("{}/rest/config/folders", &config.url))
-        .header("X-API-Key", &config.token)
+        .get(&format!("{}/rest/config/folders", &config.url))
+        .header("Authorization", format!("Bearer {}", &config.token))
         .send()
         .await
     {
@@ -51,7 +51,38 @@ pub async fn get_folders(config: &Config) -> Result<Vec<PathBuf>, Box<dyn Error>
     };
     let mut folders = Vec::new();
     for folder in rsp_json.as_array().unwrap() {
-        folders.push(PathBuf::from(folder["path"].as_str().unwrap()));
+        //let path = PathBuf::from(expanduser(folder["path"].as_str().unwrap()));
+        let path_str = match folder["path"].as_str() {
+            Some(path_str) => path_str,
+            None => {
+                return Err(format!(
+                    "Error parsing folder path from syncthing response:\n{}",
+                    rsp_text
+                )
+                .into())
+            }
+        };
+        let expanded_path_str = match expanduser(path_str) {
+            Ok(expanded_path_str) => expanded_path_str,
+            Err(e) => {
+                return Err(format!(
+                    "Error expanding user in folder path from syncthing response:\n{}",
+                    e
+                )
+                .into())
+            }
+        };
+        let path = PathBuf::from(expanded_path_str);
+        if path.exists() && path.is_dir() {
+            folders.push(path);
+        } else {
+            return Err(format!(
+                "Folder path does not exist or is not a directory: {}",
+                path.display()
+            )
+            .into());
+        }
     }
+    debug!("Syncthing folders: {:?}", folders);
     Ok(folders)
 }
