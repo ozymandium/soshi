@@ -1,4 +1,3 @@
-use std::error::Error;
 use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -6,7 +5,8 @@ use std::time::Duration;
 use clap::{Parser, ValueHint};
 use color_eyre::eyre::{eyre, Result};
 use env_logger::{Builder as LogBuilder, Env as LogEnv};
-use log::{debug, info, warn};
+use log::{debug, error, info, warn};
+use ntfy::error::NtfyError;
 use serde::Deserialize;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::time as tokio_time;
@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
     let config = match Config::load(&args.config) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error loading config file:\n{}", e);
+            error!("Error loading config file:\n{}", e);
             return Err(e);
         }
     };
@@ -148,9 +148,25 @@ async fn main() -> Result<()> {
 
     let mut stream_sigterm = signal(SignalKind::terminate())?;
     loop {
-        if let Err(e) = run(&config, &syncthing, &ntfy).await {
-            eprintln!("Error running main loop:\n{}", e);
-            return Err(e);
+        // If we get most error types from the run function, we want to send a special ntfy
+        // notification and exit. However, if the error actually came from the ntfy library, then
+        // we won't be able to send a notification. In that case, we just want to log the error and
+        // exit.
+        match run(&config, &syncthing, &ntfy).await {
+            Ok(_) => {}
+            Err(e) => {
+                match e.downcast::<NtfyError>() {
+                    Ok(ntfy_err) => {
+                        error!("Error running main loop came from ntfy. Exiting without notification:\n{}", ntfy_err);
+                        return Err(eyre!(ntfy_err));
+                    }
+                    Err(other_err) => {
+                        error!("Error running main loop:\n{}", other_err);
+                        ntfy.failure(&other_err.to_string()).await.unwrap();
+                        return Err(other_err);
+                    }
+                }
+            }
         }
         let delay = tokio_time::sleep(config.interval);
         tokio::select! {

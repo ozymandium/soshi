@@ -1,7 +1,7 @@
 use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
+use std::fs;
 use std::path::PathBuf;
-use std::{error::Error, fs};
 
 /// Struct for the json database file
 #[derive(Serialize, Deserialize)]

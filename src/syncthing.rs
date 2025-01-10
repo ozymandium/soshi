@@ -5,7 +5,6 @@ use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest;
 use serde::Deserialize;
-use std::error::Error;
 use std::path::PathBuf;
 
 /// Recursively finds files in a directory or its subdirectories that match a regex. Ignores

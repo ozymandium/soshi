@@ -6,7 +6,7 @@ use color_eyre::eyre::{Result, WrapErr};
 use gethostname::gethostname;
 use ntfy::dispatcher::auth::Auth;
 use ntfy::dispatcher::Dispatcher;
-use ntfy::error::NtfyError as Error;
+use ntfy::error::NtfyError;
 use ntfy::payload::{Payload, Priority};
 
 /// Configuration for sending requests to ntfy.sh
@@ -68,7 +68,7 @@ impl Ntfy {
     ///
     /// # Returns
     /// Result indicating success or failure
-    pub async fn conflicts(&self, conflicts: &[PathBuf]) -> Result<(), Error> {
+    pub async fn conflicts(&self, conflicts: &[PathBuf]) -> Result<(), NtfyError> {
         if conflicts.is_empty() {
             return Ok(());
         }
@@ -93,7 +93,7 @@ impl Ntfy {
     }
 
     /// Send a notification to ntfy.sh about a soshi failure
-    pub async fn failure(&self, message: &str) -> Result<(), Error> {
+    pub async fn failure(&self, message: &str) -> Result<(), NtfyError> {
         let payload = Payload::new(&self.config.topic)
             .title(format!("{}: soshi failed", &self.hostname))
             .tags(["rotating_light"])
