@@ -1,3 +1,4 @@
+use color_eyre::eyre::Result;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::{error::Error, fs};

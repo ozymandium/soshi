@@ -2,11 +2,12 @@ use log::debug;
 use serde::Deserialize;
 use std::path::PathBuf;
 
+use color_eyre::eyre::Result;
 use gethostname::gethostname;
 use ntfy::dispatcher::auth::Auth;
 use ntfy::dispatcher::Dispatcher;
 use ntfy::error::NtfyError as Error;
-use ntfy::payload::Payload;
+use ntfy::payload::{Payload, Priority};
 
 /// Configuration for sending requests to ntfy.sh
 #[derive(Debug, Deserialize)]
@@ -59,7 +60,7 @@ impl Ntfy {
         })
     }
 
-    /// Send a notification to ntfy.sh
+    /// Send a notification to ntfy.sh about new syncthing conflicts
     ///
     /// # Arguments
     /// * `conflicts`: list of new conflict files
@@ -85,6 +86,19 @@ impl Ntfy {
                     .join("\n"),
             )
             .markdown(true);
+        self.dispatcher.send(&payload).await?;
+        debug!("Sent notification");
+        Ok(())
+    }
+
+    /// Send a notification to ntfy.sh about a soshi failure
+    pub async fn failure(&self, message: &str) -> Result<(), Error> {
+        let payload = Payload::new(&self.config.topic)
+            .title(format!("{}: soshi failed", &self.hostname))
+            .tags(["rotating_light"])
+            .priority(Priority::High)
+            .message(message)
+            .markdown(false);
         self.dispatcher.send(&payload).await?;
         debug!("Sent notification");
         Ok(())

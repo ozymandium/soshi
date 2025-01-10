@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use clap::{Parser, ValueHint};
+use color_eyre::eyre::Result;
 use env_logger::{Builder as LogBuilder, Env as LogEnv};
 use log::{debug, info, warn};
 use regex::Regex;
@@ -66,7 +67,7 @@ impl Config {
 ///
 /// # Returns
 fn find_conflicts(folders: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
-    let conflict_re = Regex::new(r".*\.sync-conflict-\d{8}-\d{6}-[0-9A-Z]{7}\..*")?;
+    let conflict_re = Regex::new(r".*\.sync-conflict-\d{8}-\d{6}-[0-9A-Z]{7}\..*").unwrap();
     let mut conflicts = Vec::new();
     for dir in folders {
         let found = find_files(dir, &conflict_re)?;
@@ -90,15 +91,10 @@ fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Erro
     let mut files = Vec::new();
     for entry in dir.read_dir()? {
         let path = entry?.path();
-        // ignore symlinks
         if path.is_symlink() {
             continue;
         }
         if path.is_dir() {
-            //let found = find_files(&path, regex)?;
-            //for file in found {
-            //    files.push(file);
-            //}
             files.append(&mut find_files(&path, regex)?);
         } else {
             let filename = path
@@ -191,7 +187,9 @@ async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
+    color_eyre::install()?;
     setup_logging();
+
     let args = Args::parse();
 
     // load config file

@@ -1,3 +1,4 @@
+use color_eyre::eyre::{Result, WrapErr};
 use expanduser::expanduser;
 use log::debug;
 use reqwest;
@@ -51,7 +52,6 @@ pub async fn get_folders(config: &Config) -> Result<Vec<PathBuf>, Box<dyn Error>
     };
     let mut folders = Vec::new();
     for folder in rsp_json.as_array().unwrap() {
-        //let path = PathBuf::from(expanduser(folder["path"].as_str().unwrap()));
         let path_str = match folder["path"].as_str() {
             Some(path_str) => path_str,
             None => {
