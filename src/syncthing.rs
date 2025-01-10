@@ -12,21 +12,43 @@ pub struct Config {
     token: String,
 }
 
+//let rsp = client
+//    .post(&format!("{}/rest/config/folders", &config.url))
+//    .header("X-API-Key", &config.token)
+//    .send()
+//    .await?
+//    .text()
+//    .await?;
+
 /// Get a list of syncthing folders from a running syncthing instance via the REST API.
 /// The syncthing crate is unmaintained and incomplete. We only need to get paths from it anyway,
 /// so just parse the raw JSON. Use the [config
 /// endpoint](https://docs.syncthing.net/rest/config.html)
 pub async fn get_folders(config: &Config) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let client = reqwest::Client::new();
-    /// FIXME: make a class to avoid putting this on the heap
-    let rsp = client
+    let rsp = match client
         .post(&format!("{}/rest/config/folders", &config.url))
         .header("X-API-Key", &config.token)
         .send()
-        .await?
-        .text()
-        .await?;
-    let rsp_json: serde_json::Value = serde_json::from_str(&rsp)?;
+        .await
+    {
+        Ok(rsp) => rsp,
+        Err(e) => return Err(format!("Error sending request to syncthing:\n{}", e).into()),
+    };
+    let rsp_text = match rsp.text().await {
+        Ok(rsp_text) => rsp_text,
+        Err(e) => return Err(format!("Error reading response from syncthing:\n{}", e).into()),
+    };
+    let rsp_json: serde_json::Value = match serde_json::from_str(&rsp_text) {
+        Ok(rsp_json) => rsp_json,
+        Err(e) => {
+            return Err(format!(
+                "Error parsing JSON from syncthing:\n{}\nText:\n{}",
+                e, rsp_text
+            )
+            .into())
+        }
+    };
     let mut folders = Vec::new();
     for folder in rsp_json.as_array().unwrap() {
         folders.push(PathBuf::from(folder["path"].as_str().unwrap()));

@@ -198,7 +198,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let config = match Config::load(&args.config) {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("Error loading config file: {}", e);
+            eprintln!("Error loading config file:\n{}", e);
             return Err(e);
         }
     };
@@ -208,7 +208,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let ntfy = match Ntfy::new(config.ntfy.clone()) {
         Ok(n) => n,
         Err(e) => {
-            eprintln!("Error creating Ntfy instance: {}", e);
+            eprintln!("Error creating Ntfy instance:\n{}", e);
             return Err(Box::new(e));
         }
     };
@@ -216,7 +216,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut stream_sigterm = signal(SignalKind::terminate())?;
     loop {
         if let Err(e) = run(&config, &ntfy).await {
-            eprintln!("Error running main loop: {}", e);
+            eprintln!("Error running main loop:\n{}", e);
             return Err(e);
         }
         let delay = tokio_time::sleep(config.interval);
