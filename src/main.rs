@@ -5,7 +5,7 @@ use std::time::Duration;
 
 use chrono;
 use clap::{Parser, ValueHint};
-use env_logger::{Builder as LogBuilder, Env as LogEnv};
+use env_logger::{Builder as LogBuilder, Env as LogEnv, WriteStyle as LogWriteStyle};
 use log::{debug, info, warn};
 use regex::Regex;
 use serde::Deserialize;
@@ -114,6 +114,21 @@ fn find_files(dir: &PathBuf, regex: &Regex) -> Result<Vec<PathBuf>, Box<dyn Erro
     Ok(files)
 }
 
+/// Configure the logging system with env_logger. Call this function at the beginning of main.
+fn setup_logging() {
+    // allows setting the RUST_LOG environment variable to control logging
+    LogBuilder::from_env(LogEnv::default())
+        .format(|buf, record| {
+            let level_style = buf.default_level_style(record.level());
+            writeln!(
+                buf,
+                "{level_style}{}{level_style:#}",
+                record.args()
+            )
+        })
+        .init();
+}
+
 fn log_conflicts(old: &[PathBuf], cur: &[PathBuf], new: &[PathBuf], res: &[PathBuf]) {
     debug!("Old conflicts: {}", old.len());
     for file in old {
@@ -178,17 +193,7 @@ async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-    LogBuilder::from_env(LogEnv::default())
-        .format(|buf, record| {
-            writeln!(
-                buf,
-                "[{} {}] {}",
-                chrono::Local::now().format("%Y-%m-%d %H:%M:%S"),
-                record.level(),
-                record.args()
-            )
-        })
-        .init();
+    setup_logging();
     let args = Args::parse();
     let config = Config::load(&args.config)?;
     debug!("Config: {:?}", config);
