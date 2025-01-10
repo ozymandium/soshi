@@ -3,9 +3,8 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::time::Duration;
 
-use chrono;
 use clap::{Parser, ValueHint};
-use env_logger::{Builder as LogBuilder, Env as LogEnv, WriteStyle as LogWriteStyle};
+use env_logger::{Builder as LogBuilder, Env as LogEnv};
 use log::{debug, info, warn};
 use regex::Regex;
 use serde::Deserialize;
@@ -16,6 +15,7 @@ use toml;
 use soshi::json_db::JsonDb;
 use soshi::ntfy::Config as NtfyConfig;
 use soshi::ntfy::Ntfy;
+use soshi::syncthing::{get_folders, Config as SyncthingConfig};
 
 /// Simple program to greet a person
 #[derive(Parser, Debug)]
@@ -32,8 +32,8 @@ struct Config {
     // How frequently to check for new conflicts
     #[serde(with = "humantime_serde")]
     interval: Duration,
-    // syncthing directories to search over
-    st_dirs: Vec<PathBuf>,
+    // syncthing instance url (with port)
+    syncthing: SyncthingConfig,
     // path to the database file, which is a json list of conflict files
     db_path: PathBuf,
     // ntfy.sh configuration.
@@ -62,13 +62,13 @@ impl Config {
 /// Finds syncthing conflict files in specified directories
 ///
 /// # Arguments
-/// * `st_dirs`: syncthing directories to search over
+/// * `folders`: syncthing directories to search over
 ///
 /// # Returns
-fn find_conflicts(st_dirs: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+fn find_conflicts(folders: &[PathBuf]) -> Result<Vec<PathBuf>, Box<dyn Error>> {
     let conflict_re = Regex::new(r".*\.sync-conflict-\d{8}-\d{6}-[0-9A-Z]{7}\..*")?;
     let mut conflicts = Vec::new();
-    for dir in st_dirs {
+    for dir in folders {
         let found = find_files(dir, &conflict_re)?;
         for file in found {
             conflicts.push(file);
@@ -120,11 +120,7 @@ fn setup_logging() {
     LogBuilder::from_env(LogEnv::default())
         .format(|buf, record| {
             let level_style = buf.default_level_style(record.level());
-            writeln!(
-                buf,
-                "{level_style}{}{level_style:#}",
-                record.args()
-            )
+            writeln!(buf, "{level_style}{}{level_style:#}", record.args())
         })
         .init();
 }
@@ -161,7 +157,9 @@ fn log_conflicts(old: &[PathBuf], cur: &[PathBuf], new: &[PathBuf], res: &[PathB
 
 async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
     let old_db = JsonDb::load(&config.db_path)?;
-    let cur_conflicts = find_conflicts(&config.st_dirs)?;
+
+    let folders = get_folders(&config.syncthing).await?;
+    let cur_conflicts = find_conflicts(&folders)?;
     // new conflicts are the difference between the current and old conflicts
     // if the db didn't exist, all current conflicts are new
     let new_conflicts: Vec<PathBuf> = cur_conflicts
@@ -195,16 +193,30 @@ async fn run(config: &Config, ntfy: &Ntfy) -> Result<(), Box<dyn Error>> {
 async fn main() -> Result<(), Box<dyn Error>> {
     setup_logging();
     let args = Args::parse();
-    let config = Config::load(&args.config)?;
+
+    // load config file
+    let config = match Config::load(&args.config) {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("Error loading config file: {}", e);
+            return Err(e);
+        }
+    };
     debug!("Config: {:?}", config);
 
-    //let dispatcher = get_dispatcher(&config.ntfy)?;
-    let ntfy = Ntfy::new(config.ntfy.clone())?;
+    // create ntfy handler
+    let ntfy = match Ntfy::new(config.ntfy.clone()) {
+        Ok(n) => n,
+        Err(e) => {
+            eprintln!("Error creating Ntfy instance: {}", e);
+            return Err(Box::new(e));
+        }
+    };
 
     let mut stream_sigterm = signal(SignalKind::terminate())?;
-
     loop {
         if let Err(e) = run(&config, &ntfy).await {
+            eprintln!("Error running main loop: {}", e);
             return Err(e);
         }
         let delay = tokio_time::sleep(config.interval);
