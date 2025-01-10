@@ -2,7 +2,7 @@ use log::debug;
 use serde::Deserialize;
 use std::path::PathBuf;
 
-use color_eyre::eyre::Result;
+use color_eyre::eyre::{Result, WrapErr};
 use gethostname::gethostname;
 use ntfy::dispatcher::auth::Auth;
 use ntfy::dispatcher::Dispatcher;
@@ -50,9 +50,10 @@ impl Ntfy {
     ///
     /// # Returns
     /// A new Ntfy instance
-    pub fn new(config: Config) -> Result<Ntfy, Error> {
+    pub fn new(config: Config) -> Result<Ntfy> {
         let hostname = gethostname().to_string_lossy().to_string();
-        let dispatcher = Dispatcher::new(&config.instance, Some(Auth::token(&config.token)), None)?;
+        let dispatcher = Dispatcher::new(&config.instance, Some(Auth::token(&config.token)), None)
+            .wrap_err("Creating dispatcher")?;
         Ok(Ntfy {
             config,
             hostname,

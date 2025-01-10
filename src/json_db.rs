@@ -21,7 +21,7 @@ impl JsonDb {
         JsonDb { conflicts }
     }
 
-    pub fn load(path: &PathBuf) -> Result<JsonDb, Box<dyn Error>> {
+    pub fn load(path: &PathBuf) -> Result<JsonDb> {
         if !path.exists() {
             return Ok(JsonDb::new(Vec::new()));
         }
@@ -31,7 +31,7 @@ impl JsonDb {
     }
 
     /// Write DB to JSON file
-    pub fn write(&self, path: &PathBuf) -> Result<(), Box<dyn Error>> {
+    pub fn write(&self, path: &PathBuf) -> Result<()> {
         let content = serde_json::to_string_pretty(&self)?;
         fs::write(path, content)?;
         Ok(())
