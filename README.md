@@ -4,7 +4,11 @@ soshi
 A simple monitor for [Syncthing](https://syncthing.net) conflicts.
 When new conflicts are detected, soshi sends [ntfy](https://ntfy.sh) notifications.
 
-Currently only supports Linux.
+Queries a configurable syncthing endpoint at fixed intervals to retrieve a list of synced folders. 
+Adding new folders to syncthing does not require reconfiguring/restarting soshi.
+
+Currently only tested on Linux. 
+However, since soshi is currently setup to do manual scans at fixed intervals, running on exotic filesystems or other OSes should take little/no effort.
 
 ## Configuration
 
