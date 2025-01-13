@@ -35,7 +35,7 @@ pub struct Ntfy {
     /// Configuration needed to send requests to ntfy.sh
     config: Config,
 
-    /// Hostname of the machine
+    /// Hostname of the machine soshi is running on (for context)
     hostname: String,
 
     /// Sends payloads to ntfy.sh
